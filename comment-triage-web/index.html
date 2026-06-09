@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Comment Triage</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0d0d12;--surface:#16161f;--s2:#1e1e2a;--s3:#252534;
+  --border:#2a2a3c;--b2:#363650;--text:#e4e4f0;--muted:#72728c;
+  --accent:#5b6af8;--ah:#4a59e8;
+  --dec:#9b59b6;--q:#3b9ede;--todo:#e8813a;--res:#2ecc71;
+}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Inter','Segoe UI',sans-serif;font-size:13px;height:100vh;overflow:hidden;display:flex;flex-direction:column}
+
+/* ── Setup ── */
+#setup{flex:1;display:flex;align-items:center;justify-content:center;padding:20px}
+.setup-card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:32px 36px;width:440px;box-shadow:0 24px 60px rgba(0,0,0,.5)}
+.logo{display:flex;align-items:center;gap:10px;margin-bottom:22px}
+.logo span{font-weight:700;font-size:16px}
+.head{font-size:21px;font-weight:700;margin-bottom:5px}
+.sub{color:var(--muted);line-height:1.55;font-size:13px;margin-bottom:24px}
+.fg{margin-bottom:14px}
+label{display:block;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:5px}
+input[type=password],input[type=text]{width:100%;background:var(--s2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:9px 12px;font-size:13px;font-family:inherit;outline:none;transition:border-color .15s,box-shadow .15s}
+input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(91,106,248,.15)}
+.hint{font-size:11.5px;color:var(--muted);margin-top:5px;line-height:1.5}
+.hint a{color:var(--accent);text-decoration:none}
+.hint a:hover{text-decoration:underline}
+#err{color:#e74c3c;font-size:12px;margin-top:10px;display:none;background:rgba(231,76,60,.08);border:1px solid rgba(231,76,60,.2);border-radius:8px;padding:9px 12px;line-height:1.45}
+button{cursor:pointer;font-family:inherit;font-size:13px;font-weight:600;border:none;border-radius:8px;padding:9px 16px;transition:all .15s}
+#load-btn{background:var(--accent);color:#fff;width:100%;padding:12px;font-size:14px;border-radius:10px;margin-top:6px}
+#load-btn:hover{background:var(--ah)}
+#load-btn:active{transform:scale(.985)}
+
+/* ── App ── */
+#app{flex:1;display:none;flex-direction:column;overflow:hidden}
+#hdr{background:var(--surface);border-bottom:1px solid var(--border);height:48px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;flex-shrink:0}
+.hl{display:flex;align-items:center;gap:10px;min-width:0}
+#hdr-name{font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:320px}
+.btn-icon{background:transparent;border:1px solid var(--border);color:var(--muted);height:32px;display:flex;align-items:center;justify-content:center;border-radius:7px;padding:0 10px;gap:5px;white-space:nowrap}
+.btn-icon:hover{background:var(--s2);color:var(--text)}
+.hr{display:flex;align-items:center;gap:6px;flex-shrink:0}
+
+/* live badge */
+#live-dot{width:7px;height:7px;border-radius:50%;background:var(--res);display:inline-block;animation:pulse 2s ease infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+#sync-label{font-size:11px;color:var(--muted)}
+
+#stats{display:flex;background:var(--surface);border-bottom:1px solid var(--border);padding:0 16px;flex-shrink:0;gap:0}
+.sp{display:flex;align-items:center;gap:5px;padding:7px 14px 7px 0;font-size:11.5px;color:var(--muted);border-right:1px solid var(--border);margin-right:14px}
+.sp:last-child{border-right:none;margin-right:0}
+.sd{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.sn{font-weight:700;color:var(--text)}
+
+#fbar{display:flex;align-items:center;gap:8px;padding:8px 16px;border-bottom:1px solid var(--border);flex-shrink:0}
+.fl{font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.06em}
+#search{width:200px;font-size:12px;padding:5px 9px}
+select{background:var(--s2);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:12px;padding:5px 8px;font-family:inherit;outline:none;cursor:pointer}
+select:focus{border-color:var(--accent)}
+
+#loading{flex:1;display:none;flex-direction:column;align-items:center;justify-content:center;gap:12px;color:var(--muted)}
+.spinner{width:24px;height:24px;border:2px solid var(--b2);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+#board{flex:1;display:grid;grid-template-columns:repeat(4,1fr);gap:12px;padding:12px;overflow-y:auto;align-items:start;min-width:0}
+
+.col{background:var(--surface);border:1px solid var(--border);border-radius:11px;overflow:hidden;min-width:0}
+.col-hdr{padding:10px 12px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)}
+.col-title{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}
+.pip{width:7px;height:7px;border-radius:50%}
+.badge{background:var(--s2);color:var(--muted);font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:20px}
+.col-body{padding:8px;display:flex;flex-direction:column;gap:7px;min-height:80px;transition:background .12s}
+.col-body.drag-over{background:rgba(91,106,248,.07);outline:2px dashed rgba(91,106,248,.35);border-radius:8px}
+
+.card{background:var(--s2);border:1px solid var(--border);border-radius:9px;padding:10px 11px;border-left-width:3px;transition:box-shadow .12s,opacity .12s;cursor:grab;min-width:0;width:100%;overflow:hidden}
+.card:active{cursor:grabbing}
+.card:hover{box-shadow:0 2px 10px rgba(0,0,0,.3)}
+.card.dragging{opacity:.35;box-shadow:none}
+.card.new-card{animation:newPop .4s ease}
+@keyframes newPop{from{transform:scale(.96);opacity:0}to{transform:scale(1);opacity:1}}
+.card[data-cat=needs-decision]{border-left-color:var(--dec)}
+.card[data-cat=open-questions]{border-left-color:var(--q)}
+.card[data-cat=todo]{border-left-color:var(--todo)}
+.card[data-cat=resolved]{border-left-color:var(--res)}
+
+.ctop{display:flex;align-items:flex-start;gap:7px;margin-bottom:7px}
+.av{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:8.5px;font-weight:700;color:#fff;flex-shrink:0}
+.cmeta{flex:1;min-width:0}
+.cauthor{font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ctime{font-size:10px;color:var(--muted)}
+
+.ctext{font-size:12px;line-height:1.5;color:#c4c4da;margin-bottom:8px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word;overflow-wrap:break-word}
+.ctext.expanded{display:block;-webkit-line-clamp:unset}
+.exp-btn{background:none;border:none;padding:0;font-size:11px;color:var(--accent);font-weight:500;margin-bottom:7px;cursor:pointer}
+
+.cfoot{display:flex;align-items:center;gap:5px;flex-wrap:nowrap;overflow:hidden}
+.btn-sm{font-size:11px;padding:4px 8px;border-radius:6px;background:transparent;border:1px solid var(--border);color:var(--muted);white-space:nowrap;flex-shrink:0}
+.btn-sm:hover{background:var(--s3);color:var(--text)}
+.thr{display:flex;align-items:center;gap:3px;font-size:10.5px;color:var(--muted);flex-shrink:0}
+.move-sel{margin-left:auto;font-size:11px;padding:4px 6px;border-radius:6px;background:var(--surface);border:1px solid var(--border);color:var(--muted);max-width:110px;min-width:0;flex-shrink:1}
+
+.rw{margin-top:8px;border-top:1px solid var(--border);padding-top:8px;display:none}
+.rw.open{display:block}
+.rw textarea{width:100%;background:var(--s2);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:12px;font-family:inherit;resize:none;padding:7px 9px;min-height:54px;line-height:1.5;outline:none}
+.rw textarea:focus{border-color:var(--accent)}
+.rbtns{display:flex;justify-content:flex-end;gap:5px;margin-top:5px}
+
+.rthread{margin-top:7px;border-top:1px solid var(--border);padding-top:6px}
+.ri{display:flex;gap:6px;margin-bottom:5px;align-items:flex-start}
+.ri:last-child{margin-bottom:0}
+.ri .av{width:16px;height:16px;font-size:7px}
+.rib{flex:1;min-width:0}
+.ri-auth{font-size:10px;font-weight:600}
+.ri-text{font-size:11px;color:#bbbbd0;line-height:1.4;word-break:break-word}
+.ri-time{font-size:9.5px;color:var(--muted)}
+
+.empty{text-align:center;padding:24px 12px;color:var(--muted);font-size:12px}
+
+#toasts{position:fixed;bottom:16px;right:16px;display:flex;flex-direction:column;gap:7px;z-index:999}
+.toast{background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:10px 14px;font-size:12px;box-shadow:0 6px 20px rgba(0,0,0,.4);animation:slideUp .2s ease;max-width:280px;line-height:1.4}
+.toast.success{border-left:3px solid var(--res)}
+.toast.error{border-left:3px solid #e74c3c}
+.toast.info{border-left:3px solid var(--accent)}
+@keyframes slideUp{from{transform:translateY(8px);opacity:0}to{transform:translateY(0);opacity:1}}
+
+.spinning{animation:spin .7s linear infinite}
+::-webkit-scrollbar{width:5px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--b2);border-radius:3px}
+</style>
+</head>
+<body>
+
+<!-- Setup -->
+<div id="setup">
+  <div class="setup-card">
+    <div class="logo">
+      <svg width="28" height="28" viewBox="0 0 30 30" fill="none">
+        <rect width="30" height="30" rx="9" fill="#16161f"/>
+        <circle cx="10.5" cy="10.5" r="4.5" fill="#9b59b6"/>
+        <circle cx="10.5" cy="19.5" r="4.5" fill="#3b9ede"/>
+        <circle cx="19.5" cy="10.5" r="4.5" fill="#5b6af8"/>
+        <circle cx="19.5" cy="19.5" r="4.5" fill="#2ecc71"/>
+      </svg>
+      <span>Comment Triage</span>
+    </div>
+    <div class="head">Connect your Figma file</div>
+    <p class="sub">Enter your token and file URL to start triaging comments. Settings are saved in your browser.</p>
+    <div class="fg">
+      <label for="token-input">Personal Access Token</label>
+      <input type="password" id="token-input" placeholder="figd_••••••••••••••••" autocomplete="off"/>
+      <p class="hint">Figma → Settings → Security → Personal access tokens → <a href="https://www.figma.com/settings" target="_blank">Generate new token ↗</a></p>
+    </div>
+    <div class="fg">
+      <label for="url-input">Figma File URL</label>
+      <input type="text" id="url-input" placeholder="https://www.figma.com/design/AbCdEf/…"/>
+    </div>
+    <div class="fg" style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+      <input type="checkbox" id="remember-cb" style="width:auto;accent-color:var(--accent)"/>
+      <label for="remember-cb" style="text-transform:none;font-size:12px;letter-spacing:0;color:var(--muted);cursor:pointer">Remember token in this browser</label>
+    </div>
+    <button id="load-btn">Connect →</button>
+    <div id="err"></div>
+  </div>
+</div>
+
+<!-- App -->
+<div id="app">
+  <header id="hdr">
+    <div class="hl">
+      <svg width="16" height="16" viewBox="0 0 30 30" fill="none">
+        <circle cx="10.5" cy="10.5" r="4.5" fill="#9b59b6"/>
+        <circle cx="10.5" cy="19.5" r="4.5" fill="#3b9ede"/>
+        <circle cx="19.5" cy="10.5" r="4.5" fill="#5b6af8"/>
+        <circle cx="19.5" cy="19.5" r="4.5" fill="#2ecc71"/>
+      </svg>
+      <span id="hdr-name">Loading…</span>
+      <span id="live-dot"></span>
+      <span id="sync-label"></span>
+    </div>
+    <div class="hr">
+      <button id="refresh-btn" class="btn-icon">
+        <svg id="ref-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+        </svg>
+        Refresh
+      </button>
+      <button id="settings-btn" class="btn-icon" title="Switch file">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+  <div id="stats">
+    <div class="sp"><span class="sd" style="background:var(--dec)"></span><span class="sn" id="s-dec">0</span>&nbsp;needs decision</div>
+    <div class="sp"><span class="sd" style="background:var(--q)"></span><span class="sn" id="s-q">0</span>&nbsp;open questions</div>
+    <div class="sp"><span class="sd" style="background:var(--todo)"></span><span class="sn" id="s-todo">0</span>&nbsp;to do</div>
+    <div class="sp"><span class="sd" style="background:var(--res)"></span><span class="sn" id="s-res">0</span>&nbsp;resolved</div>
+  </div>
+  <div id="fbar">
+    <span class="fl">Filter</span>
+    <input type="text" id="search" placeholder="Search…"/>
+    <span class="fl" style="margin-left:6px">Sort</span>
+    <select id="sort-sel">
+      <option value="newest">Newest</option>
+      <option value="oldest">Oldest</option>
+    </select>
+  </div>
+  <div id="loading"><div class="spinner"></div><span>Loading comments…</span></div>
+  <div id="board">
+    <div class="col">
+      <div class="col-hdr"><div class="col-title"><span class="pip" style="background:var(--dec)"></span>Needs Decision</div><span class="badge" id="b-needs-decision">0</span></div>
+      <div class="col-body" id="cb-needs-decision" data-cat="needs-decision"></div>
+    </div>
+    <div class="col">
+      <div class="col-hdr"><div class="col-title"><span class="pip" style="background:var(--q)"></span>Open Questions</div><span class="badge" id="b-open-questions">0</span></div>
+      <div class="col-body" id="cb-open-questions" data-cat="open-questions"></div>
+    </div>
+    <div class="col">
+      <div class="col-hdr"><div class="col-title"><span class="pip" style="background:var(--todo)"></span>To Do</div><span class="badge" id="b-todo">0</span></div>
+      <div class="col-body" id="cb-todo" data-cat="todo"></div>
+    </div>
+    <div class="col">
+      <div class="col-hdr"><div class="col-title"><span class="pip" style="background:var(--res)"></span>Resolved</div><span class="badge" id="b-resolved">0</span></div>
+      <div class="col-body" id="cb-resolved" data-cat="resolved"></div>
+    </div>
+  </div>
+</div>
+
+<div id="toasts"></div>
+
+<script>
+// ── State ─────────────────────────────────────────────────────────────────────
+var token     = '';
+var fileKey   = '';
+var fileName  = '';
+var topLevel  = [];
+var replyMap  = {};
+var overrides = {};
+var knownIds  = new Set();
+var pollTimer = null;
+var POLL_MS   = 30000;
+
+var CATS = {
+  'needs-decision': 'Needs Decision',
+  'open-questions': 'Open Questions',
+  'todo':           'To Do',
+  'resolved':       'Resolved'
+};
+
+// ── localStorage helpers ──────────────────────────────────────────────────────
+function lsGet(k)    { try { return localStorage.getItem(k); }    catch(e) { return null; } }
+function lsSet(k, v) { try { localStorage.setItem(k, v); }        catch(e) {} }
+function lsDel(k)    { try { localStorage.removeItem(k); }         catch(e) {} }
+
+// ── Wire up controls ──────────────────────────────────────────────────────────
+document.getElementById('load-btn').addEventListener('click', connect);
+document.getElementById('refresh-btn').addEventListener('click', function() { loadComments(false); });
+document.getElementById('settings-btn').addEventListener('click', showSetup);
+document.getElementById('search').addEventListener('input', renderBoard);
+document.getElementById('sort-sel').addEventListener('change', renderBoard);
+document.getElementById('token-input').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') connect();
+});
+document.getElementById('url-input').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') connect();
+});
+
+// ── Restore saved settings ────────────────────────────────────────────────────
+(function init() {
+  var savedToken = lsGet('fig_token');
+  var savedUrl   = lsGet('fig_url');
+  try { overrides = JSON.parse(lsGet('fig_overrides') || '{}'); } catch(e) {}
+
+  if (savedToken) {
+    document.getElementById('token-input').value = savedToken;
+    document.getElementById('remember-cb').checked = true;
+  }
+  if (savedUrl) {
+    document.getElementById('url-input').value = savedUrl;
+  }
+  if (savedToken && savedUrl) {
+    token   = savedToken;
+    fileKey = extractKey(savedUrl) || '';
+    if (fileKey) { showApp(); loadComments(false); }
+  }
+})();
+
+// ── Connect ───────────────────────────────────────────────────────────────────
+function connect() {
+  var t   = document.getElementById('token-input').value.trim();
+  var url = document.getElementById('url-input').value.trim();
+  var rem = document.getElementById('remember-cb').checked;
+
+  document.getElementById('err').style.display = 'none';
+
+  if (!t)   { showErr('Please enter your personal access token.'); return; }
+  if (!url) { showErr('Please enter your Figma file URL.'); return; }
+
+  var key = extractKey(url);
+  if (!key) { showErr('That doesn\'t look like a valid Figma file URL.'); return; }
+
+  token   = t;
+  fileKey = key;
+
+  if (rem) { lsSet('fig_token', token); lsSet('fig_url', url); }
+  else     { lsDel('fig_token'); lsDel('fig_url'); }
+
+  showApp();
+  loadComments(false);
+}
+
+function extractKey(url) {
+  var m = url.match(/figma\.com\/(?:file|design|proto)\/([a-zA-Z0-9]+)/);
+  return m ? m[1] : null;
+}
+
+function showErr(msg) {
+  var el = document.getElementById('err');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+
+function showSetup() {
+  clearTimeout(pollTimer);
+  document.getElementById('setup').style.display = 'flex';
+  document.getElementById('app').style.display   = 'none';
+}
+
+function showApp() {
+  document.getElementById('setup').style.display = 'none';
+  document.getElementById('app').style.display   = 'flex';
+}
+
+// ── Load comments ─────────────────────────────────────────────────────────────
+function loadComments(silent) {
+  clearTimeout(pollTimer);
+
+  var board   = document.getElementById('board');
+  var loading = document.getElementById('loading');
+  var icon    = document.getElementById('ref-icon');
+
+  if (!silent) {
+    board.style.display   = 'none';
+    loading.style.display = 'flex';
+  }
+  icon.classList.add('spinning');
+
+  fetch('https://api.figma.com/v1/files/' + fileKey + '?depth=1', {
+    headers: { 'X-Figma-Token': token }
+  })
+  .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
+  .then(function(res) {
+    if (!res.ok) throw new Error(res.data.err || 'Auth failed — check your token');
+    fileName = res.data.name || 'Figma File';
+    document.getElementById('hdr-name').textContent = fileName;
+    return fetch('https://api.figma.com/v1/files/' + fileKey + '/comments', {
+      headers: { 'X-Figma-Token': token }
+    });
+  })
+  .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
+  .then(function(res) {
+    if (!res.ok) throw new Error(res.data.err || 'Failed to load comments');
+
+    var all      = res.data.comments || [];
+    var newTL    = all.filter(function(c) { return !c.parent_id; });
+    var replies  = all.filter(function(c) { return !!c.parent_id; });
+
+    replyMap = {};
+    replies.forEach(function(r) {
+      if (!replyMap[r.parent_id]) replyMap[r.parent_id] = [];
+      replyMap[r.parent_id].push(r);
+    });
+
+    // detect genuinely new comments
+    var newOnes = [];
+    newTL.forEach(function(c) {
+      if (knownIds.size > 0 && !knownIds.has(c.id)) newOnes.push(c);
+      knownIds.add(c.id);
+      if (!overrides[c.id]) overrides[c.id] = autoCat(c);
+    });
+    lsSet('fig_overrides', JSON.stringify(overrides));
+
+    topLevel = newTL;
+
+    if (silent && newOnes.length) {
+      toast(newOnes.length + ' new comment' + (newOnes.length > 1 ? 's' : '') + ' arrived', 'info');
+    }
+
+    renderBoard(newOnes.map(function(c) { return c.id; }));
+    updateStats();
+
+    var now = new Date();
+    document.getElementById('sync-label').textContent =
+      'Live · synced ' + now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  })
+  .catch(function(err) {
+    toast('Error: ' + err.message, 'error');
+  })
+  .finally(function() {
+    loading.style.display = 'none';
+    board.style.display   = 'grid';
+    icon.classList.remove('spinning');
+    // schedule next poll
+    pollTimer = setTimeout(function() { loadComments(true); }, POLL_MS);
+  });
+}
+
+// ── Auto-categorize ───────────────────────────────────────────────────────────
+function autoCat(c) {
+  if (c.resolved_at) return 'resolved';
+  var t = (c.message || '').toLowerCase();
+
+  var dec = [
+    'decide','decision','which option','go with','preference','vote',
+    'option a','option b','approve','sign off','sign-off','weigh in',
+    'should we','should this','should it','should i','should the',
+    'do we want','do we need','do we use','do we keep','do we have',
+    'what should we','what should i','what do we',
+    ' or right',' or left',' or not',' or remove',' or keep',
+    'keep or','fill or','fit or','on or off','yes or no',
+    'which direction','which approach','which design','which version',
+    'your call','your thoughts','thoughts?','lmk','let me know',
+    'pick one','choose','going with',
+  ];
+  var todo = [
+    'todo','to do','to-do','fix this','fix the','update this','update the',
+    'please fix','please update','needs to be','need to','should be',
+    'missing','incorrect','wrong','remove this','change this','add this',
+    'replace','broken','doesn\'t work','not working','off by','too small',
+    'too large','too wide','too narrow','align','spacing','padding','margin',
+  ];
+
+  if (dec.some(function(w)  { return t.indexOf(w) !== -1; })) return 'needs-decision';
+  if (todo.some(function(w) { return t.indexOf(w) !== -1; })) return 'todo';
+  if (t.indexOf('?') !== -1) return 'open-questions';
+  return 'todo';
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function renderBoard(highlightIds) {
+  var q    = (document.getElementById('search').value || '').toLowerCase();
+  var sort = document.getElementById('sort-sel').value;
+  var hi   = highlightIds || [];
+
+  ['needs-decision','open-questions','todo','resolved'].forEach(function(cat) {
+    document.getElementById('cb-' + cat).innerHTML = '';
+  });
+
+  var groups = {'needs-decision':[],'open-questions':[],'todo':[],'resolved':[]};
+  topLevel.forEach(function(c) {
+    if (q && (c.message || '').toLowerCase().indexOf(q) === -1) return;
+    var cat = overrides[c.id] || 'todo';
+    groups[cat].push(c);
+  });
+
+  var sortFn = sort === 'newest'
+    ? function(a,b) { return new Date(b.created_at) - new Date(a.created_at); }
+    : function(a,b) { return new Date(a.created_at) - new Date(b.created_at); };
+
+  Object.keys(groups).forEach(function(cat) {
+    var body  = document.getElementById('cb-' + cat);
+    var cards = groups[cat].sort(sortFn);
+    document.getElementById('b-' + cat).textContent = cards.length;
+    if (!cards.length) {
+      body.innerHTML = '<div class="empty">No comments here</div>';
+      return;
+    }
+    cards.forEach(function(c) {
+      var el = buildCard(c, cat);
+      if (hi.indexOf(c.id) !== -1) el.classList.add('new-card');
+      body.appendChild(el);
+    });
+  });
+}
+
+function buildCard(c, cat) {
+  var user = c.user || {};
+  var name = user.handle || user.email || 'Unknown';
+  var init = name.slice(0,2).toUpperCase();
+  var bg   = pickColor(name);
+  var ts   = ago(new Date(c.created_at));
+  var txt  = c.message || '';
+  var long = txt.length > 140;
+  var reps = replyMap[c.id] || [];
+
+  var opts = Object.keys(CATS).map(function(k) {
+    return '<option value="' + k + '"' + (k === cat ? ' selected' : '') + '>' + CATS[k] + '</option>';
+  }).join('');
+
+  var repItems = reps.map(function(r) {
+    var rn = (r.user && (r.user.handle || r.user.email)) || '?';
+    return '<div class="ri">' +
+      '<div class="av" style="background:' + pickColor(rn) + '">' + rn.slice(0,2).toUpperCase() + '</div>' +
+      '<div class="rib">' +
+        '<span class="ri-auth">' + esc(rn) + '</span> <span class="ri-time">' + ago(new Date(r.created_at)) + '</span>' +
+        '<div class="ri-text">' + esc(r.message || '') + '</div>' +
+      '</div></div>';
+  }).join('');
+
+  var el = document.createElement('div');
+  el.className  = 'card';
+  el.dataset.cat = cat;
+  el.dataset.id  = c.id;
+  el.setAttribute('draggable', 'true');
+  el.innerHTML =
+    '<div class="ctop">' +
+      '<div class="av" style="background:' + bg + '">' + init + '</div>' +
+      '<div class="cmeta">' +
+        '<div class="cauthor">' + esc(name) + '</div>' +
+        '<div class="ctime">' + ts + '</div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="ctext" id="ct-' + c.id + '">' + esc(txt) + '</div>' +
+    (long ? '<button class="exp-btn" data-id="' + c.id + '" data-action="expand">Show more</button>' : '') +
+    '<div class="cfoot">' +
+      '<button class="btn-sm" data-id="' + c.id + '" data-action="reply">↩ Reply</button>' +
+      (cat !== 'resolved' ? '<button class="btn-sm" data-id="' + c.id + '" data-action="done">✓ Done</button>' : '') +
+      (reps.length ? '<span class="thr"><svg width="9" height="9" viewBox="0 0 16 16" fill="currentColor"><path d="M14 1H2a1 1 0 00-1 1v9a1 1 0 001 1h3v3l3-3h6a1 1 0 001-1V2a1 1 0 00-1-1z"/></svg>&nbsp;' + reps.length + '</span>' : '') +
+      '<select class="move-sel" data-id="' + c.id + '" data-action="move">' + opts + '</select>' +
+    '</div>' +
+    '<div class="rw" id="rw-' + c.id + '">' +
+      '<textarea id="rt-' + c.id + '" placeholder="Write a reply…" rows="2"></textarea>' +
+      '<div class="rbtns">' +
+        '<button class="btn-sm" data-id="' + c.id + '" data-action="cancel-reply">Cancel</button>' +
+        '<button class="btn-sm" id="rs-' + c.id + '" data-id="' + c.id + '" data-action="send-reply" style="background:var(--accent);color:#fff;border-color:var(--accent)">Send</button>' +
+      '</div>' +
+    '</div>' +
+    (reps.length ? '<div class="rthread">' + repItems + '</div>' : '');
+
+  return el;
+}
+
+// ── Delegated events ──────────────────────────────────────────────────────────
+document.getElementById('board').addEventListener('click', function(e) {
+  var btn = e.target.closest('[data-action]');
+  if (!btn) return;
+  var action = btn.dataset.action, id = btn.dataset.id;
+  if (action === 'expand')       toggleExp(id);
+  if (action === 'reply')        toggleReply(id);
+  if (action === 'cancel-reply') toggleReply(id);
+  if (action === 'send-reply')   sendReply(id);
+  if (action === 'done')         moveTo(id, 'resolved');
+});
+
+document.getElementById('board').addEventListener('change', function(e) {
+  var sel = e.target.closest('[data-action="move"]');
+  if (sel) moveTo(sel.dataset.id, sel.value);
+});
+
+// ── Drag and drop ─────────────────────────────────────────────────────────────
+var dragId = null;
+
+document.getElementById('board').addEventListener('dragstart', function(e) {
+  var card = e.target.closest('.card[data-id]');
+  if (!card) return;
+  dragId = card.dataset.id;
+  card.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+});
+document.getElementById('board').addEventListener('dragend', function(e) {
+  var card = e.target.closest('.card');
+  if (card) card.classList.remove('dragging');
+  document.querySelectorAll('.col-body.drag-over').forEach(function(el) { el.classList.remove('drag-over'); });
+});
+document.getElementById('board').addEventListener('dragover', function(e) {
+  if (e.target.closest('.col-body[data-cat]')) e.preventDefault();
+});
+document.getElementById('board').addEventListener('dragenter', function(e) {
+  var body = e.target.closest('.col-body[data-cat]');
+  if (!body) return;
+  document.querySelectorAll('.col-body.drag-over').forEach(function(el) { el.classList.remove('drag-over'); });
+  body.classList.add('drag-over');
+});
+document.getElementById('board').addEventListener('dragleave', function(e) {
+  var body = e.target.closest('.col-body[data-cat]');
+  if (body && !body.contains(e.relatedTarget)) body.classList.remove('drag-over');
+});
+document.getElementById('board').addEventListener('drop', function(e) {
+  var body = e.target.closest('.col-body[data-cat]');
+  if (!body) return;
+  e.preventDefault();
+  body.classList.remove('drag-over');
+  if (dragId) moveTo(dragId, body.dataset.cat);
+  dragId = null;
+});
+
+// ── Actions ───────────────────────────────────────────────────────────────────
+function toggleExp(id) {
+  var el = document.getElementById('ct-' + id);
+  var bt = document.querySelector('[data-id="' + id + '"][data-action="expand"]');
+  if (!el) return;
+  var on = el.classList.toggle('expanded');
+  if (bt) bt.textContent = on ? 'Show less' : 'Show more';
+}
+
+function toggleReply(id) {
+  var w = document.getElementById('rw-' + id);
+  if (!w) return;
+  var open = w.classList.toggle('open');
+  if (open) { var ta = document.getElementById('rt-' + id); if (ta) ta.focus(); }
+}
+
+function sendReply(pid) {
+  var ta  = document.getElementById('rt-' + pid);
+  var btn = document.getElementById('rs-' + pid);
+  if (!ta || !btn) return;
+  var msg = ta.value.trim();
+  if (!msg) return;
+  btn.textContent = 'Sending…';
+  btn.disabled    = true;
+
+  fetch('https://api.figma.com/v1/files/' + fileKey + '/comments', {
+    method: 'POST',
+    headers: { 'X-Figma-Token': token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message: msg, comment_id: pid })
+  })
+  .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
+  .then(function(res) {
+    if (!res.ok) { toast('Failed: ' + (res.data.err || 'unknown error'), 'error'); return; }
+    ta.value = '';
+    document.getElementById('rw-' + pid).classList.remove('open');
+    toast('Reply sent ✓', 'success');
+    setTimeout(function() { loadComments(false); }, 700);
+  })
+  .catch(function(e) { toast('Error: ' + e.message, 'error'); })
+  .finally(function() { btn.textContent = 'Send'; btn.disabled = false; });
+}
+
+function moveTo(id, cat) {
+  overrides[id] = cat;
+  lsSet('fig_overrides', JSON.stringify(overrides));
+  renderBoard();
+  updateStats();
+}
+
+// ── Stats ─────────────────────────────────────────────────────────────────────
+function updateStats() {
+  var c = {'needs-decision':0,'open-questions':0,'todo':0,'resolved':0};
+  topLevel.forEach(function(x) { c[overrides[x.id] || 'todo']++; });
+  document.getElementById('s-dec').textContent  = c['needs-decision'];
+  document.getElementById('s-q').textContent    = c['open-questions'];
+  document.getElementById('s-todo').textContent = c['todo'];
+  document.getElementById('s-res').textContent  = c['resolved'];
+}
+
+// ── Utils ─────────────────────────────────────────────────────────────────────
+function esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+function ago(d) {
+  var s = (Date.now() - d) / 1000;
+  if (s < 60)     return 'just now';
+  if (s < 3600)   return Math.floor(s/60) + 'm ago';
+  if (s < 86400)  return Math.floor(s/3600) + 'h ago';
+  if (s < 604800) return Math.floor(s/86400) + 'd ago';
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
+var PAL = ['#9b59b6','#3b9ede','#5b6af8','#2ecc71','#e74c3c','#e67e22','#1abc9c','#f39c12'];
+function pickColor(s) {
+  var h = 0;
+  for (var i = 0; i < s.length; i++) h = s.charCodeAt(i) + ((h << 5) - h);
+  return PAL[Math.abs(h) % PAL.length];
+}
+
+function toast(msg, type) {
+  var w = document.getElementById('toasts');
+  var el = document.createElement('div');
+  el.className = 'toast ' + (type || 'success');
+  el.textContent = msg;
+  w.appendChild(el);
+  setTimeout(function() { el.remove(); }, 4000);
+}
+</script>
+</body>
+</html>
